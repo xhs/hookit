@@ -12,7 +12,7 @@ from .http import *
 from .log import logger
 
 PEEK_BUFFER_SIZE = os.getenv('PEEK_BUFFER_SIZE', 128)
-RELAY_BUFFER_SIZE = os.getenv('PROXY_BUFFER_SIZE', 1024 * 1024)
+RELAY_BUFFER_SIZE = os.getenv('PROXY_BUFFER_SIZE', 1024 * 512)
 
 
 class Hookit(object):
@@ -34,10 +34,10 @@ class Hookit(object):
             sys.exit(0)
 
     async def check(self, request):
-        pass
+        raise NotImplementedError
 
     async def hook(self, response):
-        pass
+        raise NotImplementedError
 
     async def _relay_client(self, client_stream: Stream, server_stream: Stream):
         buf = b''
