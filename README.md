@@ -1,6 +1,6 @@
 # hookit
 
-Semi-transparent HTTP proxy to enhance any API with hooks
+Trio-based semi-transparent HTTP proxy to enhance any API with hooks
 
 ```bash
 pip install hookit-python
