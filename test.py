@@ -3,6 +3,7 @@
 
 from hookit import Hookit
 from loguru import logger
+import trio
 
 
 class HookProxy(Hookit):
@@ -12,6 +13,11 @@ class HookProxy(Hookit):
 
     async def hook(self, response):
         logger.info('hook() is called')
+        return 5
+
+    async def background(self, seconds):
+        await trio.sleep(seconds)
+        logger.info('Task completed')
 
 
 if __name__ == '__main__':

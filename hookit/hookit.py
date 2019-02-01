@@ -1,18 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from trio.abc import Stream
+from trio.abc import Stream, SendChannel, ReceiveChannel
 import trio
 
-import os
 import sys
 import uuid
 
+from .config import *
+from .exc import HookitConnectionError
 from .http import *
 from .log import logger
-
-PEEK_BUFFER_SIZE = os.getenv('PEEK_BUFFER_SIZE', 128)
-RELAY_BUFFER_SIZE = os.getenv('PROXY_BUFFER_SIZE', 1024 * 512)
 
 
 class Hookit(object):
@@ -33,12 +31,15 @@ class Hookit(object):
             logger.info('Bye')
             sys.exit(0)
 
-    async def check(self, request):
+    async def check(self, request: HttpRequestHeader):
         raise NotImplementedError
 
-    async def hook(self, response):
+    async def hook(self, response: HttpResponseHeader):
         raise NotImplementedError
 
+    async def background(self, task):
+        pass
+    
     async def _relay_client(self, client_stream: Stream, server_stream: Stream):
         buf = b''
         client_id = uuid.uuid4().hex
@@ -54,9 +55,7 @@ class Hookit(object):
 
                     chunk = await client_stream.receive_some(PEEK_BUFFER_SIZE)
                     if not chunk:
-                        logger.debug(f'Connection to client {client_id} closed')
-                        await server_stream.aclose()
-                        return
+                        raise HookitConnectionError
                     buf += chunk
 
                 header_bytes = buf[:tail]
@@ -81,13 +80,15 @@ class Hookit(object):
 
                     chunk = await client_stream.receive_some(RELAY_BUFFER_SIZE)
                     if not chunk:
-                        logger.debug(f'Connection to client {client_id} closed')
-                        await server_stream.aclose()
-                        return
+                        raise HookitConnectionError
                     buf += chunk
 
                 logger.debug(f'{request}(length={length}) relayed')
 
+            except HookitConnectionError:
+                logger.debug(f'Connection to client {client_id} closed')
+                await server_stream.aclose()
+                return
             except trio.ClosedResourceError:
                 logger.debug(f'Connection to client {client_id} closed by server')
                 return
@@ -95,7 +96,7 @@ class Hookit(object):
                 logger.exception(ex)
                 return
 
-    async def _relay_server(self, client_stream: Stream, server_stream: Stream):
+    async def _relay_server(self, client_stream: Stream, server_stream: Stream, task_queue: SendChannel):
         buf = b''
         while True:
             try:
@@ -108,16 +109,17 @@ class Hookit(object):
 
                     chunk = await server_stream.receive_some(PEEK_BUFFER_SIZE)
                     if not chunk:
-                        logger.debug(f'Connection to {self.host}:{self.port} closed')
-                        await client_stream.aclose()
-                        return
+                        raise HookitConnectionError
                     buf += chunk
 
                 header_bytes = buf[:tail]
                 response = HttpResponseHeader(header_bytes)
                 if self._call_hook:
                     self._call_hook = False
-                    await self.hook(response)
+                    task = await self.hook(response)
+                    if task is not None:
+                        logger.debug(f'Working on task {task} in background')
+                        await task_queue.send(task)
 
                 header_bytes = response.encode()
                 await client_stream.send_all(header_bytes)
@@ -136,19 +138,32 @@ class Hookit(object):
 
                     chunk = await server_stream.receive_some(RELAY_BUFFER_SIZE)
                     if not chunk:
-                        logger.debug(f'Connection to {self.host}:{self.port} closed')
-                        await client_stream.aclose()
-                        return
+                        raise HookitConnectionError
                     buf += chunk
 
                 logger.debug(f'{response}(length={length}) relayed')
 
+            except HookitConnectionError:
+                logger.debug(f'Connection to {self.host}:{self.port} closed')
+                await client_stream.aclose()
+                await task_queue.aclose()
+                return
             except trio.ClosedResourceError:
                 logger.debug(f'Connection to {self.host}:{self.port} closed by client')
+                await task_queue.aclose()
                 return
             except Exception as ex:
                 logger.exception(ex)
                 return
+
+    async def _worker(self, task_queue: ReceiveChannel):
+        while True:
+            try:
+                task = await task_queue.receive()
+                await self.background(task)
+            except (trio.EndOfChannel, trio.ClosedResourceError):
+                logger.debug(f'Task queue closed')
+                break
 
     async def _proxy(self, client_stream: Stream):
         if self.tls:
@@ -156,9 +171,12 @@ class Hookit(object):
         else:
             server_stream = await trio.open_tcp_stream(self.host, self.port)
         logger.debug(f'Connected to {self.host}:{self.port}')
+
+        send_channel, receive_channel = trio.open_memory_channel(TASK_QUEUE_SIZE)
         async with trio.open_nursery() as nursery:
+            nursery.start_soon(self._worker, receive_channel)
             nursery.start_soon(self._relay_client, client_stream, server_stream)
-            nursery.start_soon(self._relay_server, client_stream, server_stream)
+            nursery.start_soon(self._relay_server, client_stream, server_stream, send_channel)
 
 
 __all__ = ['Hookit']
