@@ -35,7 +35,7 @@ class HttpRequestHeader(HttpHeader):
         self.version = version
 
     def __str__(self):
-        return f'HttpRequestHeader{{{self.method}, {self.path}, {self.version}}}'
+        return f'HttpRequestHeader{{{self.method}, {self.path}, {self.version}, {self.headers}}}'
 
 
 class HttpResponseHeader(HttpHeader):
@@ -53,7 +53,7 @@ class HttpResponseHeader(HttpHeader):
         self.status = status
 
     def __str__(self):
-        return f'HttpResponseHeader{{{self.version}, {self.code}, {self.status}}}'
+        return f'HttpResponseHeader{{{self.version}, {self.code}, {self.status}, {self.headers}}}'
 
 
 __all__ = ['HttpRequestHeader', 'HttpResponseHeader']

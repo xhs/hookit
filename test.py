@@ -8,12 +8,15 @@ import trio
 
 class HookProxy(Hookit):
     async def check(self, request):
+        logger.info(request)
         logger.info("Let's call hook()")
         return True
 
-    async def hook(self, response):
+    async def hook(self, response, body=None):
         logger.info('hook() is called')
-        return 5
+        logger.info(response)
+        logger.info(body.decode())
+        return 3
 
     async def background(self, seconds):
         await trio.sleep(seconds)
