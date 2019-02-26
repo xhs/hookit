@@ -1,9 +1,9 @@
 # hookit
 
-Trio-based semi-transparent HTTP proxy to enhance any API with hooks
+Trio based semi-transparent HTTP proxy to enhance any API with hooks
 
 ```bash
-pip install hookit-python
+pip3 install hookit-python
 ```
 
 ```python
@@ -12,17 +12,17 @@ from loguru import logger
 import trio
 
 
-class HookProxy(Hookit):
+class HttpBinProxy(Hookit):
     async def check(self, request):
         logger.info(request)
         logger.info("Let's call hook()")
-        return True
+        return True # call hook() and decode body if any
 
     async def hook(self, response, body=None):
         logger.info('hook() is called')
         logger.info(response)
         logger.info(body.decode())
-        return 3
+        return 3 # returns task 3 (seconds)
 
     async def background(self, seconds):
         await trio.sleep(seconds)
@@ -30,7 +30,8 @@ class HookProxy(Hookit):
 
 
 if __name__ == '__main__':
-    proxy = HookProxy('httpbin.org', 443, tls=True)
+    # relay requests to https://httpbin.org
+    proxy = HttpBinProxy('httpbin.org', 443, tls=True)
     proxy.listen(8088)
 ```
 
